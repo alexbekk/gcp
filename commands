@@ -1,0 +1,87 @@
+
+export PROJECT_ID=$(gcloud config get-value project | sed '2d')
+gcloud init
+gcloud iam service-accounts keys list --iam-account service-account-email-id
+gcloud iam service-accounts keys list --iam-account
+gcloud auth list
+gcloud config list project
+gcloud services enable servicenetworking.googleapis.com --project=$PROJECT_ID
+gcloud services enable ids.googleapis.com --project=$PROJECT_ID
+gcloud services enable logging.googleapis.com --project=$PROJECT_ID
+gcloud services enable logging.googleapis.com --project=$PROJECT_ID
+
+# Firewall Rules
+  
+gcloud compute firewall-rules create mynetwork-ingress-allow-icmp-internal --network mynetwork --action ALLOW --direction INGRESS --rules icmp --source-ranges 10.128.0.0/9
+gcloud compute firewall-rules create mynetwork-ingress-deny-icmp-all --network mynetwork --action DENY --direction INGRESS --rules icmp --priority 500
+gcloud compute firewall-rules update mynetwork-ingress-deny-icmp-all --priority 2000
+gcloud compute firewall-rules list --filter="network:mynetwork" --format=json
+gcloud compute firewall-rules create mynetwork-egress-deny-icmp-all --network mynetwork --action DENY --direction EGRESS --rules icmp --priority 10000
+gcloud compute firewall-rules list --filter="network:mynetwork"
+gcloud compute firewall-rules update openvpn-access-server-1-tcp-80 --disabled
+gcloud compute firewall-rules create openvpn-access-server-1-tcp-80    --allow tcp:80    --description "Allow incoming traffic on port 80"   --direction INGRESS   --target-tags openvpn-access-server-1-deployment
+gcloud compute firewall-rules create allow-http-icmp --direction=INGRESS --priority=1000 --network=cloud-ids --action=ALLOW --rules=tcp:80,icmp --source-ranges=0.0.0.0/0 --target-tags=server
+gcloud compute firewall-rules create allow-iap-proxy --direction=INGRESS --priority=1000 --network=cloud-ids --action=ALLOW --rules=tcp:22 --source-ranges=35.235.240.0/20
+  gcloud compute firewall-rules create mynetwork-ingress-allow-ssh-from-cs --network mynetwork --action ALLOW --direction INGRESS --rules tcp:22 --source-ranges $ip --target-tags=lab-ssh
+  
+# Network
+gcloud compute networks subnets update default --region us-central1 --enable-flow-logs --logging-metadata=include-all
+gcloud compute networks subnets update default --region europe-west1 --enable-flow-logs --logging-metadata=include-all
+gcloud compute networks subnets update default --region europe-west1 --no-enable-flow-logs
+gcloud compute networks subnets update default --region us-central1 --no-enable-flow-logs
+  gcloud compute networks create mynetwork --subnet-mode=auto
+gcloud compute networks create privatenet --subnet-mode=custom
+gcloud compute networks subnets create privatesubnet --network=privatenet --region=us-central1 --range=10.0.0.0/24 --enable-private-ip-google-access
+  gcloud compute networks create cloud-ids --subnet-mode=custom
+gcloud compute networks subnets create cloud-ids-useast1 --range=192.168.10.0/24 --network=cloud-ids --region=us-east1
+
+# IDS
+export PROJECT_ID=$(gcloud config get-value project | sed '2d')
+gcloud compute networks create cloud-ids --subnet-mode=custom
+gcloud compute networks subnets create cloud-ids-useast1 \\n--range=192.168.10.0/24 \\n--network=cloud-ids \\n--region=us-east1
+gcloud compute addresses create cloud-ids-ips \\n--global \\n--purpose=VPC_PEERING \\n--addresses=10.10.10.0 \\n--prefix-length=24 \\n--description="Cloud IDS Range" --network=cloud-ids
+gcloud services vpc-peerings connect \\n--service=servicenetworking.googleapis.com \\n--ranges=cloud-ids-ips \\n--network=cloud-ids \\n--project=$PROJECT_ID
+gcloud ids endpoints create cloud-ids-east1 \\n--network=cloud-ids \\n--zone=us-east1-b \\n--severity=INFORMATIONAL \\n--async
+gcloud compute firewall-rules create allow-http-icmp \\n--direction=INGRESS \\n--priority=1000 \\n--network=cloud-ids \\n--action=ALLOW \\n--rules=tcp:80,icmp \\n--source-ranges=0.0.0.0/0 \\n--target-tags=server
+gcloud compute firewall-rules create allow-iap-proxy \\n--direction=INGRESS \\n--priority=1000 \\n--network=cloud-ids \\n--action=ALLOW \\n--rules=tcp:22 \\n--source-ranges=35.235.240.0/20
+gcloud compute routers create cr-cloud-ids-useast1 \\n--region=us-east1 \\n--network=cloud-ids
+gcloud compute routers nats create nat-cloud-ids-useast1 \\n--router=cr-cloud-ids-useast1 \\n--router-region=us-east1 \\n--auto-allocate-nat-external-ips \\n--nat-all-subnet-ip-ranges
+gcloud compute instances create server \\n--zone=us-east1-b \\n--machine-type=e2-medium \\n--subnet=cloud-ids-useast1 \\n--no-address \\n--private-network-ip=192.168.10.20 \\n--metadata=startup-script=\#\!\ /bin/bash$'\n'sudo\ apt-get\ update$'\n'sudo\ apt-get\ -qq\ -y\ install\ nginx \\n--tags=server \\n--image=debian-10-buster-v20210512 \\n--image-project=debian-cloud \\n--boot-disk-size=10GB
+gcloud compute instances create attacker \\n--zone=us-east1-b \\n--machine-type=e2-medium \\n--subnet=cloud-ids-useast1 \\n--no-address \\n--private-network-ip=192.168.10.10 \\n--image=debian-10-buster-v20210512 \\n--image-project=debian-cloud \\n--boot-disk-size=10GB
+gcloud compute ssh server --zone=us-east1-b --tunnel-through-iap
+gcloud ids endpoints list --project=$PROJECT_ID
+gcloud ids endpoints list --project=$PROJECT_ID | grep STATE
+export FORWARDING_RULE=$(gcloud ids endpoints describe cloud-ids-east1 --zone=us-east1-b --format="value(endpointForwardingRule)")\necho $FORWARDING_RULE
+gcloud compute packet-mirrorings create cloud-ids-packet-mirroring \\n--region=us-east1 \\n--collector-ilb=$FORWARDING_RULE \\n--network=cloud-ids \\n--mirrored-subnets=cloud-ids-useast1
+gcloud compute packet-mirrorings list
+gcloud compute ssh attacker --zone=us-east1-b --tunnel-through-iap
+
+  
+# Instances
+  
+gcloud compute instances create default-eu-vm --machine-type e2-micro --zone=europe-west1 --network=default
+gcloud compute instances create default-eu-vm --machine-type e2-micro --zone=europe-west1-b --network=default
+gcloud compute instances create default-ap-vm --machine-type e2-micro --zone=asia-east1-b --network=default
+gcloud compute instances create mynet-us-vm --machine-type e2-micro --zone=us-central1-a --network=mynetwork --tags lab-ssh
+gcloud compute instances add-tags mynet-eu-vm --zone europe-west1-b --tags lab-ssh
+gcloud compute instances create server \\n--zone=us-east1-b \\n--machine-type=e2-medium \\n--subnet=cloud-ids-useast1 \\n--no-address \\n--private-network-ip=192.168.10.20 \\n--metadata=startup-script=\#\!\ /bin/bash$'\n'sudo\ apt-get\ update$'\n'sudo\ apt-get\ -qq\ -y\ install\ nginx \\n--tags=server \\n--image=debian-10-buster-v20210512 \\n--image-project=debian-cloud \\n--boot-disk-size=10GB
+gcloud compute instances create attacker \\n--zone=us-east1-b \\n--machine-type=e2-medium \\n--subnet=cloud-ids-useast1 \\n--no-address \\n--private-network-ip=192.168.10.10 \\n--image=debian-10-buster-v20210512 \\n--image-project=debian-cloud \\n--boot-disk-size=10GB
+
+# Routers
+
+  gcloud compute routers create cr-cloud-ids-useast1 \\n--region=us-east1 \\n--network=cloud-ids
+gcloud compute routers nats create nat-cloud-ids-useast1 \\n--router=cr-cloud-ids-useast1 \\n--router-region=us-east1 \\n--auto-allocate-nat-external-ips \\n--nat-all-subnet-ip-ranges
+  
+# SSH
+  
+gcloud compute ssh --zone "europe-west1-b" "default-eu-vm" --project "plated-sunup-416911"
+gcloud compute ssh attacker --zone=us-east1-b --tunnel-through-iap
+gcloud compute ssh server --zone=us-east1-b --tunnel-through-iap
+
+
+
+
+gcloud compute addresses create cloud-ids-ips --global --purpose=VPC_PEERING --addresses=10.10.10.0 --prefix-length=24 --description="Cloud IDS Range" --network=cloud-ids
+gcloud services vpc-peerings connect --service=servicenetworking.googleapis.com --ranges=cloud-ids-ips --network=cloud-ids --project=$PROJECT_ID
+gcloud ids endpoints create cloud-ids-east1 \\n--network=cloud-ids \\n--zone=us-east1-b \\n--severity=INFORMATIONAL \\n--async
+
